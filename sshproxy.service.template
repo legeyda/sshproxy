@@ -1,0 +1,13 @@
+[Unit]
+After=network-online.target
+Requires=network-online.target
+
+[Service]
+User={{RUN_USER}}
+Group={{RUN_GROUP}}
+Restart=always
+RuntimeMaxSec=1800
+ExecStart=ssh -vvNTD {{PROXY_ADDRESS}} -o 'ServerAliveInterval 60' {{SSH_ARGUMENTS}} {{SSH_DESTINATION}}
+
+[Install]
+WantedBy=multi-user.target

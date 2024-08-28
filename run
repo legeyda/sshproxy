@@ -1,0 +1,78 @@
+#!/usr/bin/env sh
+set -eux
+
+# txt: https://github.com/ajdiaz/bashdoc
+# env: SSH_DESTINATION
+# env: TARGET?
+# env: RUN_USER?
+# env: RUN_GROUP?
+# env: PROXY_ADDRESS?
+main() {
+	: "${TARGET:=./target}"
+	: "${RUN_USER:=$USER}"
+	: "${RUN_GROUP:=$USER}"
+	: "${PROXY_ADDRESS:=localhost:1080}"
+	: "${SSH_ARGUMENTS:=}"
+	handle_args "$@"
+}
+
+# fun: run_clean other targets and args
+# env: TARGET
+run_clean() {
+	echo 'cleaning temp files...'
+	rm -vrf "${TARGET}"
+	echo 'done cleaning temp files'
+	handle_args "$@"
+}
+
+# env: SSH_DESTINATION
+# env: RUN_USER
+# env: RUN_GROUP
+# env: PROXY_ADDRESS
+run_install() {
+	local service=sshproxy.service
+	sudo systemctl list-units      --state=running | grep -q $service && sudo systemctl stop    $service || true
+	systemctl list-unit-files --state=enabled | grep -q $service && sudo systemctl disable $service || true
+	test -f /etc/systemd/system/$service && sudo rm /etc/systemd/system/$service
+	sudo systemctl daemon-reload
+	cat ./$service.template \
+			| placeholder RUN_USER "$RUN_USER" \
+			| placeholder RUN_GROUP "$RUN_GROUP" \
+			| placeholder PROXY_ADDRESS "$PROXY_ADDRESS" \
+			| placeholder SSH_ARGUMENTS "${SSH_ARGUMENTS:-}" \
+			| placeholder SSH_DESTINATION "$SSH_DESTINATION" \
+			| sudo tee /etc/systemd/system/$service > /dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl enable $service
+	sudo systemctl start $service
+	systemctl status $service
+	handle_args "$@"
+}
+
+# fun: echo '{{ KEY }}' | fun placeholder KEY value
+placeholder() {
+	local name="$1"
+	local value="$2"
+	sed -s "s|{{\s*$name\s*}}|$value|g"
+}
+
+run_uninstall() {
+	local service=sshproxy.service
+	sudo systemctl list-units      --state=running | grep -q $service && sudo systemctl stop    $service || true
+	#systemctl list-unit-files --state=enabled | grep -q $service && sudo systemctl disable $service || true
+	sudo rm -rf /etc/systemd/system/$service
+	sudo systemctl daemon-reload
+	handle_args "$@"
+}
+
+# fun: handle_args ar1 arg2 arg3
+# env: ?
+handle_args() {
+	local first_args="${1:-}"
+	test -n "$first_args" || return
+	shift
+	"run_$first_args" "$@"
+}
+
+
+main "$@" # entry point
