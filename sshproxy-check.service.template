@@ -1,0 +1,14 @@
+[Unit]
+After=network-online.target
+Requires=network-online.target
+Requires={{SSHPROXY_NAME}}.service
+
+[Service]
+Type=oneshot
+Environment='SSHPROXY_CHECK_DOMAINS={{SSHPROXY_CHECK_DOMAINS}}'
+Environment='SSHPROXY_LISTEN_ADDRESS={{SSHPROXY_LISTEN_ADDRESS}}'
+Environment='SSHPROXY_CHECK_RESTART_TIMEOUT={{SSHPROXY_CHECK_RESTART_TIMEOUT}}'
+ExecStart={{PREFIX}}/bin/{{SSHPROXY_NAME}}-check
+
+[Install]
+WantedBy=timers.target

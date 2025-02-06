@@ -1,0 +1,12 @@
+[Unit]
+Description=runs {{SSHPROXY_NAME}}-watch periodically
+Requires={{SSHPROXY_NAME}}-check.service
+Requires={{SSHPROXY_NAME}}.service
+
+[Timer]
+Unit={{SSHPROXY_NAME}}-check.service
+AccuracySec=1
+OnCalendar={{SSHPROXY_CHECK_CALENDAR}}
+
+[Install]
+WantedBy=timers.target

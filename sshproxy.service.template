@@ -3,11 +3,14 @@ After=network-online.target
 Requires=network-online.target
 
 [Service]
-User={{RUN_USER}}
-Group={{RUN_GROUP}}
+Environment='SSHPROXY_LISTEN_ADDRESS={{SSHPROXY_LISTEN_ADDRESS}}'
+Environment='SSHPROXY_SSH_ARGUMENTS={{SSHPROXY_SSH_ARGUMENTS}}'
+Environment='SSHPROXY_CONNECT_ADDRESS={{SSHPROXY_CONNECT_ADDRESS}}'
+User={{SSHPROXY_USER}}
+Group={{SSHPROXY_GROUP}}
 Restart=always
-RuntimeMaxSec=1800
-ExecStart=ssh -vvNTD {{PROXY_ADDRESS}} -o 'ServerAliveInterval 60' {{SSH_ARGUMENTS}} {{SSH_DESTINATION}}
+ExecStart=ssh -vvNTD "$SSHPROXY_LISTEN_ADDRESS" -o 'ServerAliveInterval 60' $SSHPROXY_SSH_ARGUMENTS "$SSHPROXY_CONNECT_ADDRESS"
+ExecStartPost=sleep 10
 
 [Install]
 WantedBy=multi-user.target

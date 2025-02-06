@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+main() {
+	
+	local name
+	name='{{SSHPROXY_NAME}}'
+
+	local service_suffix_list
+	service_suffix_list='.service -check.service -check.timer'
+	#service_suffix_list=.service # !!!
+
+	local systemctl_command='{{SYSTEMCTL}}'
+
+	for suffix in $service_suffix_list; do
+		$systemctl_command stop    "$name$suffix" || true
+		$systemctl_command disable "$name$suffix" || true
+		rm -f "{{DESTDIR}}{{SYSTEMD_DIR}}/$name$suffix"
+	done
+	$systemctl_command daemon-reload
+
+	rm "{{DESTDIR}}{{PREFIX}}/bin/$name-check" "{{DESTDIR}}{{PREFIX}}/share/$name/uninstall"
+	rmdir "{{DESTDIR}}{{PREFIX}}/share/$name"
+}
+
+
+
+# https://stackoverflow.com/a/28776166
+script_is_sourced() {
+	if [ -n "${ZSH_VERSION:-}" ]; then 
+		case $ZSH_EVAL_CONTEXT in *:file:*) return 0;; esac
+	else  # Add additional POSIX-compatible shell names here, if needed.
+		case ${0##*/} in dash|-dash|bash|-bash|ksh|-ksh|sh|-sh) return 0;; esac
+	fi
+	return 1  # NOT sourced.
+}
+entry-point() {
+	script_is_sourced || main "$@"
+}
+entry-point "$@"

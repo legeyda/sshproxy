@@ -1,67 +1,8 @@
-#!/usr/bin/env sh
-set -eux
+#!/usr/bin/env bash
+set -euo pipefail
 
 # txt: https://github.com/ajdiaz/bashdoc
-# env: SSH_DESTINATION
-# env: TARGET?
-# env: RUN_USER?
-# env: RUN_GROUP?
-# env: PROXY_ADDRESS?
 main() {
-	: "${TARGET:=./target}"
-	: "${RUN_USER:=$USER}"
-	: "${RUN_GROUP:=$USER}"
-	: "${PROXY_ADDRESS:=localhost:1080}"
-	: "${SSH_ARGUMENTS:=}"
-	handle_args "$@"
-}
-
-# fun: run_clean other targets and args
-# env: TARGET
-run_clean() {
-	echo 'cleaning temp files...'
-	rm -vrf "${TARGET}"
-	echo 'done cleaning temp files'
-	handle_args "$@"
-}
-
-# env: SSH_DESTINATION
-# env: RUN_USER
-# env: RUN_GROUP
-# env: PROXY_ADDRESS
-run_install() {
-	local service=sshproxy.service
-	sudo systemctl list-units      --state=running | grep -q $service && sudo systemctl stop    $service || true
-	systemctl list-unit-files --state=enabled | grep -q $service && sudo systemctl disable $service || true
-	test -f /etc/systemd/system/$service && sudo rm /etc/systemd/system/$service
-	sudo systemctl daemon-reload
-	cat ./$service.template \
-			| placeholder RUN_USER "$RUN_USER" \
-			| placeholder RUN_GROUP "$RUN_GROUP" \
-			| placeholder PROXY_ADDRESS "$PROXY_ADDRESS" \
-			| placeholder SSH_ARGUMENTS "${SSH_ARGUMENTS:-}" \
-			| placeholder SSH_DESTINATION "$SSH_DESTINATION" \
-			| sudo tee /etc/systemd/system/$service > /dev/null
-	sudo systemctl daemon-reload
-	sudo systemctl enable $service
-	sudo systemctl start $service
-	systemctl status $service
-	handle_args "$@"
-}
-
-# fun: echo '{{ KEY }}' | fun placeholder KEY value
-placeholder() {
-	local name="$1"
-	local value="$2"
-	sed -s "s|{{\s*$name\s*}}|$value|g"
-}
-
-run_uninstall() {
-	local service=sshproxy.service
-	sudo systemctl list-units      --state=running | grep -q $service && sudo systemctl stop    $service || true
-	#systemctl list-unit-files --state=enabled | grep -q $service && sudo systemctl disable $service || true
-	sudo rm -rf /etc/systemd/system/$service
-	sudo systemctl daemon-reload
 	handle_args "$@"
 }
 
@@ -75,4 +16,97 @@ handle_args() {
 }
 
 
-main "$@" # entry point
+run_install() {
+	: "${DESTDIR:=}"
+	: "${PREFIX:=/usr}"
+	: "${SYSTEMD_DIR:=/etc/systemd/system}"
+	: "${SYSTEMCTL:=systemctl}"
+	
+	: "${SSHPROXY_USER:=$USER}"
+	: "${SSHPROXY_GROUP:=$USER}"
+	: "${SSHPROXY_NAME:=sshproxy}"
+	: "${SSHPROXY_SSH_ARGUMENTS:=}"
+	: "${SSHPROXY_CONNECT_ADDRESS:=x.legeyda.com}"
+	: "${SSHPROXY_LISTEN_ADDRESS:=localhost:1080}"
+	: "${SSHPROXY_CHECK_CALENDAR:=*:*:0/10}"
+	: "${SSHPROXY_CHECK_DOMAINS:=google.com youtube.com facebook.com instagram.com whatsapp.com x.com wikipedia.org yahoo.com reddit.com yahoo.co.jp amazon.com yandex.ru baidu.com chatgpt.com tiktok.com xvideos.com pornhub.com netflix.com linkedin.com docomo.ne.jp live.com twitter.com office.com pinterest.com xhamster.com dzen.ru xnxx.com bing.com max.com microsoftonline.com bilibili.com naver.com vk.com discord.com mail.ru turbopages.org samsung.com xhamster.desi microsoft.com twitch.tv weather.com t.me quora.com roblox.com duckduckgo.com fandom.com stripchat.com sharepoint.com qq.com ebay.com}"
+	: "${SSHPROXY_CHECK_RESTART_TIMEOUT:=300}"
+
+
+	install --directory "${DESTDIR}${PREFIX}/bin"
+	apply_template < "sshproxy-check.template" > "$DESTDIR$PREFIX/bin/$SSHPROXY_NAME-check"
+	chmod ugo+x "$DESTDIR$PREFIX/bin/$SSHPROXY_NAME-check"
+
+	# install files
+	local service_suffix_list
+	service_suffix_list='.service -check.service -check.timer'
+	#service_suffix_list=.service # !!!
+	install --directory "$DESTDIR$SYSTEMD_DIR"
+	for suffix in $service_suffix_list; do
+		apply_template < "sshproxy$suffix.template" > "$DESTDIR$SYSTEMD_DIR/$SSHPROXY_NAME$suffix"
+	done
+
+	# enable systemd services
+	$SYSTEMCTL daemon-reload
+	for suffix in $service_suffix_list; do
+		$SYSTEMCTL enable "$SSHPROXY_NAME$suffix"
+		$SYSTEMCTL start "$SSHPROXY_NAME$suffix"
+	done
+
+	install --directory "$DESTDIR$PREFIX/share/$SSHPROXY_NAME"
+	apply_template < "uninstall.template" > "$DESTDIR$PREFIX/share/$SSHPROXY_NAME/uninstall"
+
+	handle_args "$@"
+}
+
+apply_template() {
+	placeholder       DESTDIR           \
+		| placeholder PREFIX             \
+		| placeholder SSHPROXY_USER       \
+		| placeholder SYSTEMD_DIR          \
+		| placeholder SYSTEMCTL             \
+		| placeholder SSHPROXY_USER          \
+		| placeholder SSHPROXY_GROUP          \
+		| placeholder SSHPROXY_NAME            \
+		| placeholder SSHPROXY_SSH_ARGUMENTS    \
+		| placeholder SSHPROXY_CONNECT_ADDRESS   \
+		| placeholder SSHPROXY_LISTEN_ADDRESS     \
+		| placeholder SSHPROXY_CHECK_CALENDAR      \
+		| placeholder SSHPROXY_CHECK_DOMAINS        \
+		| placeholder SSHPROXY_CHECK_RESTART_TIMEOUT
+}
+
+# fun: echo '{{ KEY }}' | fun placeholder KEY value
+placeholder() {
+	local name
+	name="$1"
+
+	local value
+	value="${!name:-}"
+	value="${2:-$value}"
+	sed -s "s|{{\s*$name\s*}}|$value|g"
+}
+
+run_uninstall() {
+	local temp_file
+	temp_file=$(mktemp)
+	apply_template < uninstall.template > "$temp_file"
+	bash "$temp_file" 
+	handle_args "$@"
+}
+
+
+
+# https://stackoverflow.com/a/28776166
+script_is_sourced() {
+	if [ -n "${ZSH_VERSION:-}" ]; then 
+		case $ZSH_EVAL_CONTEXT in *:file:*) return 0;; esac
+	else  # Add additional POSIX-compatible shell names here, if needed.
+		case ${0##*/} in dash|-dash|bash|-bash|ksh|-ksh|sh|-sh) return 0;; esac
+	fi
+	return 1  # NOT sourced.
+}
+entry-point() {
+	script_is_sourced || main "$@"
+}
+entry-point "$@"

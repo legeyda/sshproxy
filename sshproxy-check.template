@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+main() {
+	read -ra domains <<< "$SSHPROXY_CHECK_DOMAINS";
+	random_domain=${domains[ $RANDOM % ${#domains[@]} ]};
+
+
+	if ! curl --no-progress-meter --proxy "socks5://${SSHPROXY_LISTEN_ADDRESS}" --max-time 10 "https://$random_domain/" > /dev/null; then
+		echo "error GETting https://$random_domain/ with socks5://${SSHPROXY_LISTEN_ADDRESS}, check failed, maybe restart"
+		local last_restart
+		last_restart="$(read-cache last-restart 0)"
+		local now
+		now="$(date +%s)"
+
+		if [[ 1 == $(( now < last_restart + SSHPROXY_CHECK_RESTART_TIMEOUT )) ]]; then
+			echo "last restart was at $(date -d "@$last_restart"), too early to restart"
+			return
+		fi
+
+		echo 'restart {{SSHPROXY_NAME}}'
+		systemctl restart '{{SSHPROXY_NAME}}'
+		write-cache last-restart "$now"
+	fi
+}
+# systemctl is-active --quiet proxy-tunnel && ( \ )
+
+write-cache() {
+	local key
+	key="$1"
+	local dir
+	dir="$(cache-dir)"
+	mkdir -p "$dir"
+	local value
+	value="$2"
+	echo "$value" > "$dir/$key"
+}
+
+read-cache() {
+	local key
+	key="$1"
+	local dir
+	dir="$(cache-dir)"
+	if [[ -f "$dir/$key" ]]; then
+		cat "$dir/$key"
+	else
+		local default_value
+		default_value="$2"
+		echo "$default_value"
+	fi
+}
+
+cache-dir() {
+	if [[ '0' = "$UID" ]]; then
+		echo '/var/cache/{{SSHPROXY_NAME}}'
+	else
+		echo "$HOME/.cache/{{SSHPROXY_NAME}}"
+	fi
+}
+
+
+
+main "$@"
